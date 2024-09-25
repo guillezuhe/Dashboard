@@ -51,7 +51,7 @@ const long interval = 80; // Interval at which to blink the LED (milliseconds)
 int buttonPin = 13;
 
 int nModes = 0;
-int displayMode = 0; // Mode of the display
+int displayMode = 2; // Mode of the display
 int buttonVal = HIGH;
 int buttonValOld = HIGH;
 
@@ -66,10 +66,10 @@ struct ParsedData {
   int lap;
   int totalLaps;
   int fuelLaps;
+  int lapTimeH;
   int lapTimeMin;
-  int lapTimeSec;
-  int lapTimeMs;
-  int deltaSec;
+  float lapTimeSec;
+  float deltaSec;
   int pos;
   int opp;
   int BlackFlag;
@@ -190,7 +190,7 @@ void loop() {
      * DISPLAY
      * **********/
     checkButtonMode();
-    setDisplay(displayMode, parsedData.lap, parsedData.totalLaps, parsedData.fuelLaps, parsedData.lapTimeMin, parsedData.lapTimeSec, parsedData.lapTimeMs, parsedData.deltaSec, parsedData.pos, parsedData.opp);
+    setDisplay(displayMode, parsedData.lap, parsedData.totalLaps, parsedData.fuelLaps, parsedData.lapTimeH, parsedData.lapTimeMin, parsedData.lapTimeSec, parsedData.deltaSec, parsedData.pos, parsedData.opp);
   }
 }
 
@@ -234,14 +234,14 @@ ParsedData parseData(String data) {
   parsedData.totalLaps = data.substring(0, data.indexOf(';')).toInt();
   data = data.substring(data.indexOf(';') + 1);
   parsedData.fuelLaps = data.substring(0, data.indexOf(';')).toInt();
+  data = data.substring(data.indexOf(';') + 1);
+  parsedData.lapTimeMin = data.substring(0, data.indexOf(':')).toInt();
   data = data.substring(data.indexOf(':') + 1);
   parsedData.lapTimeMin = data.substring(0, data.indexOf(':')).toInt();
   data = data.substring(data.indexOf(':') + 1);
-  parsedData.lapTimeSec = data.substring(0, data.indexOf(':')).toInt();
-  data = data.substring(data.indexOf(':') + 1);
-  parsedData.lapTimeMs = data.substring(0, data.indexOf(';')).toInt();
+  parsedData.lapTimeSec = data.substring(0, data.indexOf(';')).toFloat();
   data = data.substring(data.indexOf(';') + 1);
-  parsedData.deltaSec = data.substring(0, data.indexOf(';')).toInt();
+  parsedData.deltaSec = data.substring(0, data.indexOf(';')).toFloat();
   data = data.substring(data.indexOf(';') + 1);
   parsedData.pos = data.substring(0, data.indexOf(';')).toInt();
   data = data.substring(data.indexOf(';') + 1);
@@ -518,15 +518,17 @@ void changeDisplayMode() {
 
 
 
-void setDisplay(int mode, int lap, int totalLaps, int fuelLaps, int lapTimeMin, int lapTimeS, int lapTimeMs, int deltaS, int pos, int opp) {
+void setDisplay(int mode, int lap, int totalLaps, int fuelLaps, int lapTimeH, int lapTimeMin, float lapTimeS, float deltaS, int pos, int opp) {
   if (mode == 0) {
     // Crono mode 1. Show lap time in the first line and lap and fuel in the second line
     lcd.setCursor(0, 0);
-    lcd.print(lapTimeMin);
+    lcd.print(lapTimeMin+60*lapTimeH);
     lcd.print(":");
+    if (lapTimeS < 10) {
+      lcd.print("0");
+    }
     lcd.print(lapTimeS);
-    lcd.print(".");
-    lcd.print(lapTimeMs);
+
     // Complete the line with spaces
     lcd.print("              ");
 
