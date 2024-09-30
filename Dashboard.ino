@@ -24,8 +24,8 @@ https://www.youtube.com/watch?v=_knr0dHRixg&list=PL5QT34daNj2BPI0Rsjdg3WpJXgK8_U
  * VARIABLES
  *********/
 
-int revPins[] = {3, 5, 6}; // Pins for the RGB LED that indicates the RPM
-int flagPins[] = {1, 2, 4}; // Pins for the RGB LED that indicates the flag
+int revPins[] = {0, 1, 2}; // Pins for the RGB LED that indicates the RPM
+int flagPins[] = {3, 5, 6}; // Pins for the RGB LED that indicates the flag
 // Shift register pins for the 7-segment display
 int latchPin = 10;
 int clockPin = 11;
@@ -48,9 +48,9 @@ unsigned long previousMillis = 0; // Will store the last time the LED was update
 const long interval = 80; // Interval at which to blink the LED (milliseconds)
 
 // Pullup button
-int buttonPin = 13;
+int buttonPin = 2;
 
-int nModes = 0;
+int nModes = 3;
 int displayMode = 2; // Mode of the display
 int buttonVal = HIGH;
 int buttonValOld = HIGH;
@@ -59,13 +59,13 @@ LiquidCrystal_I2C lcd(0x27, 16, 2); // LCD display
 
 
 struct ParsedData {
-  int speed;
+  float speed;
   int gear;
-  int rpmPC;
+  float rpmPC;
   bool pitLimiter;
   int lap;
   int totalLaps;
-  int fuelLaps;
+  float fuelLaps;
   int lapTimeH;
   int lapTimeMin;
   float lapTimeSec;
@@ -81,19 +81,23 @@ struct ParsedData {
   int Flag; // 0: No flag, 1: Black, 2: Yellow, 3: Green, 4: Blue, 5: White, 6: Checkered
 };
 
-ParsedData parsedData;
-
 // Numbers for the 7-segment display
 byte numbers[11] = {
                   0b00101010, //n
                   0b01100000, 0b11011010, //1, 2
                   0b11110010, 0b01100110, //3, 4
-                  0b10110110, 0b11111010, //5, 6
+                  0b10110110, 0b10111110, //5, 6
                   0b11100000, 0b11111110, //7, 8
                   0b11110110, 0b00001010  //9, r
-                  
                   }; 
 
+
+// Serial buffer
+#define BUFFER_SIZE 256
+char serialBuffer[BUFFER_SIZE];
+int bufferIndex = 0;
+
+ParsedData parsedData;
 
 
 /**********
@@ -101,7 +105,7 @@ byte numbers[11] = {
  *********/
 
 void setup() {
-  Serial.begin(9600); // Initialize serial communication at 9600 baud rate
+  Serial.begin(115200); // Initialize serial communication at 9600 baud rate
   for (i = 0; i < 3; i++) {
     pinMode(revPins[i], OUTPUT);
     pinMode(flagPins[i], OUTPUT);
@@ -127,7 +131,7 @@ void setup() {
   lcd.print("Dashboard");
   lcd.setCursor(0, 1);
   lcd.print("guillezuhe");
-  delay(2000);
+  //delay(2000);
 
 }
 
@@ -139,58 +143,71 @@ void loop() {
 
   unsigned long currentMillis = millis();
 
-  if (Serial.available() > 0) {
+  while (Serial.available() > 0) {
     /************
      * PARSE DATA
      * **********/
-    String receivedData = Serial.readStringUntil('\n'); // Read data from SimHub
-    // Serial.println(receivedData); // Send the received data back to SimHub
-    parsedData = parseData(receivedData); // Parse the received data
+    // The data follows the following format:
+    // '('+[SpeedKmh]+';'+[Gear]+';'+[CarSettings_CurrentDisplayedRPMPercent]+';'+[PitLimiterOn]+';'+[CurrentLap]+';'+[TotalLaps]+';'+[DataCorePlugin.Computed.Fuel_RemainingLaps]+';'+[CurrentLapTime]+';'+[PersistantTrackerPlugin.SessionBestLiveDeltaSeconds]+';'+[Position]+';'+[OpponentsCount]+';'+[Flag_Black]+';'+[Flag_Yellow]+';'+[Flag_Green]+';'+[Flag_Blue]+';'+[Flag_White]+';'+[Flag_Checkered]+')\n'
+    char incomingByte = Serial.read();
 
-    /************
-     * GEAR
-     * **********/
-    // Display the gear on the 7-segment display
-    setGear(parsedData.gear);
-
-    /************
-     * REVS COLOR
-     * **********/
-
-    //Blink the LED if the RPM is over the red line (98%)
-    if (parsedData.rpmPC > 98) {
-      // Blink the LED without delay
-      if (currentMillis - previousMillis >= interval) {
-        previousMillis = currentMillis;
-        if (ledRevsState == 0) {
-          // setLedsRevs(0);
-          setLedsRevsShifter(0);
-          ledRevsState = 1;
-        }
-        else {
-          // setLedsRevs(parsedData.rpmPC);
-          setLedsRevsShifter(parsedData.rpmPC);
-          ledRevsState = 0;
-        }
-      }
-    }
-    else{
-      // setLedsRevs(parsedData.rpmPC);
-      setLedsRevsShifter(parsedData.rpmPC);
+    // Check for buffer overflow
+    if (bufferIndex < BUFFER_SIZE - 1) {
+      serialBuffer[bufferIndex++] = incomingByte;
     }
     
-    /************
-     * FLAG COLOR
-     * **********/
-    colorFlag = flagColor(parsedData.Flag); // Get the color of the LED based on the flag
-    // Set the color of the LED
-    setFlagColor(colorFlag);
+    
+    if (incomingByte == '\n') {
+      serialBuffer[bufferIndex] = '\0';  // Null-terminate the buffer
+      parsedData = parseData(serialBuffer);  // Parse the buffer
 
-    /************
-     * DISPLAY
-     * **********/
-    checkButtonMode();
-    setDisplay(displayMode, parsedData.lap, parsedData.totalLaps, parsedData.fuelLaps, parsedData.lapTimeH, parsedData.lapTimeMin, parsedData.lapTimeSec, parsedData.deltaSec, parsedData.pos, parsedData.opp);
+      /************
+       * GEAR
+       * **********/
+      // Display the gear on the 7-segment display
+      setGear(parsedData.gear);
+
+      /************
+       * REVS COLOR
+       * **********/
+
+      //Blink the LED if the RPM is over the red line (98%)
+      if (parsedData.rpmPC > 98) {
+        // Blink the LED without delay
+        if (currentMillis - previousMillis >= interval) {
+          previousMillis = currentMillis;
+          if (ledRevsState == 0) {
+            // setLedsRevs(0);
+            setLedsRevsShifter(0);
+            ledRevsState = 1;
+          }
+          else {
+            // setLedsRevs(parsedData.rpmPC);
+            setLedsRevsShifter(parsedData.rpmPC);
+            ledRevsState = 0;
+          }
+        }
+      }
+      else{
+        // setLedsRevs(parsedData.rpmPC);
+        setLedsRevsShifter(parsedData.rpmPC);
+      }
+      
+      /************
+       * FLAG COLOR
+       * **********/
+      colorFlag = flagColor(parsedData.Flag); // Get the color of the LED based on the flag
+      // Set the color of the LED
+      setFlagColor(colorFlag);
+
+      /************
+       * DISPLAY
+       * **********/
+      checkButtonMode();
+      setDisplay(displayMode, parsedData.lap, parsedData.totalLaps, parsedData.fuelLaps, parsedData.lapTimeH, parsedData.lapTimeMin, parsedData.lapTimeSec, parsedData.deltaSec, parsedData.pos, parsedData.opp);
+    
+      bufferIndex = 0; // Reset the buffer index
+    }
   }
 }
 
@@ -204,91 +221,101 @@ FUNCTIONS
 
 *************/
 
-ParsedData parseData(String data) {
-  // Parse the data received from SimHub
+ParsedData parseData(char* data) {
   ParsedData parsedData;
 
-  // The data follows the following format:
-  // '('+[SpeedKmh]+';'+[Gear]+';'+[CarSettings_CurrentDisplayedRPMPercent]+';'+[PitLimiterOn]+';'+[CurrentLap]+';'+[TotalLaps]+';'+[DataCorePlugin.Computed.Fuel_RemainingLaps]+';'+[CurrentLapTime]+';'+[PersistantTrackerPlugin.SessionBestLiveDeltaSeconds]+';'+[Position]+';'+[OpponentsCount]+';'+[Flag_Black]+';'+[Flag_Yellow]+';'+[Flag_Green]+';'+[Flag_Blue]+';'+[Flag_White]+';'+[Flag_Checkered]+')\n'
-  parsedData.speed = data.substring(1, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  String gear_S = data.substring(0, data.indexOf(';'));
-  
-  if (gear_S == "N") {
+  // Use strtok() to tokenize the string by ';' and ':' delimiters
+  char* token;
+
+  // Skip the initial '('
+  token = strtok(data + 1, ";");  // First token (Speed)
+  parsedData.speed = atof(token);  // Convert to float
+
+  // Next token (Gear)
+  token = strtok(NULL, ";");
+  if (strcmp(token, "N") == 0) {
     parsedData.gear = 0;
   }
-  else if (gear_S == "R") {
+  else if (strcmp(token, "R") == 0) {
     parsedData.gear = -1;
   }
   else {
-    parsedData.gear = gear_S.toInt();
+    parsedData.gear = atoi(token);  // Convert to integer
   }
 
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.rpmPC = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.pitLimiter = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.lap = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.totalLaps = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.fuelLaps = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.lapTimeMin = data.substring(0, data.indexOf(':')).toInt();
-  data = data.substring(data.indexOf(':') + 1);
-  parsedData.lapTimeMin = data.substring(0, data.indexOf(':')).toInt();
-  data = data.substring(data.indexOf(':') + 1);
-  parsedData.lapTimeSec = data.substring(0, data.indexOf(';')).toFloat();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.deltaSec = data.substring(0, data.indexOf(';')).toFloat();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.pos = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.opp = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.BlackFlag = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.YellowFlag = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.GreenFlag = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.BlueFlag = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.WhiteFlag = data.substring(0, data.indexOf(';')).toInt();
-  data = data.substring(data.indexOf(';') + 1);
-  parsedData.CheckeredFlag = data.substring(0, data.indexOf(')')).toInt();
+  // RPM Percent
+  token = strtok(NULL, ";");
+  parsedData.rpmPC = atof(token);
 
-  // Determine the flag
+  // Pit Limiter
+  token = strtok(NULL, ";");
+  parsedData.pitLimiter = atoi(token);
+
+  // Lap
+  token = strtok(NULL, ";");
+  parsedData.lap = atoi(token);
+
+  // Total Laps
+  token = strtok(NULL, ";");
+  parsedData.totalLaps = atoi(token);
+
+  // Fuel Laps
+  token = strtok(NULL, ";");
+  parsedData.fuelLaps = atof(token);
+
+  // Lap Time (Hours, Minutes, Seconds)
+  token = strtok(NULL, ":");
+  parsedData.lapTimeH = atoi(token);  // Hours
+
+  token = strtok(NULL, ":");
+  parsedData.lapTimeMin = atoi(token);  // Minutes
+
+  token = strtok(NULL, ";");
+  parsedData.lapTimeSec = atof(token);  // Seconds
+
+  // Delta Seconds
+  token = strtok(NULL, ";");
+  parsedData.deltaSec = atof(token);
+
+  // Position
+  token = strtok(NULL, ";");
+  parsedData.pos = atoi(token);
+
+  // Opponents Count
+  token = strtok(NULL, ";");
+  parsedData.opp = atoi(token);
+
+  // Flags
+  parsedData.BlackFlag = atoi(strtok(NULL, ";"));
+  parsedData.YellowFlag = atoi(strtok(NULL, ";"));
+  parsedData.GreenFlag = atoi(strtok(NULL, ";"));
+  parsedData.BlueFlag = atoi(strtok(NULL, ";"));
+  parsedData.WhiteFlag = atoi(strtok(NULL, ";"));
+  parsedData.CheckeredFlag = atoi(strtok(NULL, ")"));  // Final flag before ')'
+
+  // Determine the flag based on priority
   if (parsedData.BlackFlag == 1) {
     parsedData.Flag = 1;
-  }
-  else if (parsedData.YellowFlag == 1) {
+  } else if (parsedData.YellowFlag == 1) {
     parsedData.Flag = 2;
-  }
-  else if (parsedData.GreenFlag == 1) {
+  } else if (parsedData.GreenFlag == 1) {
     parsedData.Flag = 3;
-  }
-  else if (parsedData.BlueFlag == 1) {
+  } else if (parsedData.BlueFlag == 1) {
     parsedData.Flag = 4;
-  }
-  else if (parsedData.WhiteFlag == 1) {
+  } else if (parsedData.WhiteFlag == 1) {
     parsedData.Flag = 5;
-  }
-  else if (parsedData.CheckeredFlag == 1) {
+  } else if (parsedData.CheckeredFlag == 1) {
     parsedData.Flag = 6;
-  }
-  else {
+  } else {
     parsedData.Flag = 0;
   }
 
   return parsedData;
-
 }
 
 
 
-int* revsColorRGB(int revsPC) {
+int* revsColorRGB(float revsPC) {
   // Return the color of the LED based on the RPM
   static int color[3]; // RGB color
   if (revsPC < 75) {
@@ -339,7 +366,7 @@ void setRevsColorRGB(int color[]) {
 
 
 
-void setLedsRevs(int revsPC) {
+void setLedsRevs(float revsPC) {
   if (revsPC < 75) {
     // LOW RPM - LED is OFF
     digitalWrite(revPins[0], LOW);
@@ -370,7 +397,7 @@ void setLedsRevs(int revsPC) {
 
 
 
-void setLedsRevsShifter(int revsPC) {
+void setLedsRevsShifter(float revsPC) {
   // Set the number of leds turned on based on the RPM. If rpm PC is <75, no leds are turned on. If rpm PC is >95, all leds are turned on.
   // The leds are turned on in a sequence from left to right
   int numLedsOn = 0;
@@ -489,6 +516,8 @@ void checkButtonMode() {
 void changeDisplayMode() {
   displayMode = (displayMode + 1) % nModes;
   lcd.clear();
+  Serial.print("Display mode: ");
+  Serial.println(displayMode);
 
   if (displayMode == 0){
     lcd.setCursor(0, 0);
@@ -518,7 +547,7 @@ void changeDisplayMode() {
 
 
 
-void setDisplay(int mode, int lap, int totalLaps, int fuelLaps, int lapTimeH, int lapTimeMin, float lapTimeS, float deltaS, int pos, int opp) {
+void setDisplay(int mode, int lap, int totalLaps, float fuelLaps, int lapTimeH, int lapTimeMin, float lapTimeS, float deltaS, int pos, int opp) {
   if (mode == 0) {
     // Crono mode 1. Show lap time in the first line and lap and fuel in the second line
     lcd.setCursor(0, 0);
