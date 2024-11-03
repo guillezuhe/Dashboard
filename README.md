@@ -30,6 +30,8 @@ Corriente máxima en el led de bandera: 15.7 mA
 
 **Consumo máximo 7-segmentos para las marchas**: 8*6.1 = 48.8 mA
 
-**Consumo total de corriente**: 138,2 mA. El máximo teórico es 200 mA. Podemos decir que estamos dentro del rango seguro.
+**Consumo de led del pit**: 4.4mA
+
+**Consumo total de corriente**: 142,6 mA. El máximo teórico es 200 mA. Podemos decir que estamos dentro del rango seguro.
 
 

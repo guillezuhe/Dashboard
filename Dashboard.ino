@@ -27,29 +27,29 @@ https://www.youtube.com/watch?v=_knr0dHRixg&list=PL5QT34daNj2BPI0Rsjdg3WpJXgK8_U
 int revPins[] = {0, 1, 2}; // Pins for the RGB LED that indicates the RPM
 int flagPins[] = {3, 5, 6}; // Pins for the RGB LED that indicates the flag
 // Shift register pins for the 7-segment display
-int latchPin = 10;
-int clockPin = 11;
-int dataPin = 12;
+int latchPin = 7;
+int clockPin = 8;
+int dataPin = 9;
 
 // Another Shift register pins to control the rev leds separately
-int latchPin2 = 7;
-int clockPin2 = 8;
-int dataPin2 = 9;
-
-int i;
-
-int freq = 10; // Frequency of the data sent by SimHub
-int* colorRevs; // RGB color of the LED that indicates the RPM
-int* colorFlag; // RGB color of the LED that indicates the flag
-int  colorOff[] = {0, 0, 0}; // RGB color to turn off the LED
+int latchPin2 = 10;
+int clockPin2 = 11;
+int dataPin2 = 12;
 
 int ledRevsState = 0; // State of the LED that indicates the RPM
 unsigned long previousMillis = 0; // Will store the last time the LED was updated
 const long interval = 80; // Interval at which to blink the LED (milliseconds)
 
+// Flag LED colors
+int freq = 10; // Frequency of the data sent by SimHub
+int* colorRevs; // RGB color of the LED that indicates the RPM
+int* colorFlag; // RGB color of the LED that indicates the flag
+int  colorOff[] = {0, 0, 0}; // RGB color to turn off the LED
+
 // Pullup button
 int buttonPin = 2;
 
+// LCD display
 int nModes = 3;
 int displayMode = 2; // Mode of the display
 int buttonVal = HIGH;
@@ -57,6 +57,11 @@ int buttonValOld = HIGH;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2); // LCD display
 
+// Boxes LED
+// TODO - Make the boxes LED to serve as DRS indicator. Blink when available and turn on when activated
+int pinBoxes = 4;
+
+int i;
 
 struct ParsedData {
   float speed;
@@ -123,6 +128,9 @@ void setup() {
 
   // Initialize the button
   pinMode(buttonPin, INPUT_PULLUP);
+
+  // Initialize the Boxes LED
+  pinMode(pinBoxes, OUTPUT);
 
   // Initialize the LCD display
   lcd.init();
@@ -191,6 +199,17 @@ void loop() {
       else{
         // setLedsRevs(parsedData.rpmPC);
         setLedsRevsShifter(parsedData.rpmPC);
+      }
+
+      /************
+       * PIT LIMITER
+       * **********/
+      // If the pit limiter is on, turn on the Boxes LED
+      if (parsedData.pitLimiter) {
+        digitalWrite(pinBoxes, HIGH);
+      }
+      else {
+        digitalWrite(pinBoxes, LOW);
       }
       
       /************
@@ -572,6 +591,9 @@ void setDisplay(int mode, int lap, int totalLaps, float fuelLaps, int lapTimeH, 
   else if (mode == 1) {
     // Crono mode 2. Show delta in the first line and lap and fuel in the second line
     lcd.setCursor(0, 0);
+    if (deltaS > 0) {
+      lcd.print("+");
+    }
     lcd.print(deltaS);
     lcd.print("              ");
 
