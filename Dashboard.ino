@@ -27,13 +27,13 @@ https://www.youtube.com/watch?v=_knr0dHRixg&list=PL5QT34daNj2BPI0Rsjdg3WpJXgK8_U
 int revPins[] = {0, 1, 2}; // Pins for the RGB LED that indicates the RPM
 int flagPins[] = {3, 5, 6}; // Pins for the RGB LED that indicates the flag
 // Shift register pins for the 7-segment display
-int latchPin = 7;
-int clockPin = 8;
+int latchPin = 8;
+int clockPin = 7;
 int dataPin = 9;
 
 // Another Shift register pins to control the rev leds separately
-int latchPin2 = 10;
-int clockPin2 = 11;
+int latchPin2 = 11;
+int clockPin2 = 10;
 int dataPin2 = 12;
 
 int ledRevsState = 0; // State of the LED that indicates the RPM
