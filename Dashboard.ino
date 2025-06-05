@@ -24,7 +24,6 @@ https://www.youtube.com/watch?v=_knr0dHRixg&list=PL5QT34daNj2BPI0Rsjdg3WpJXgK8_U
  * VARIABLES
  *********/
 
-int revPins[] = {0, 1, 2}; // Pins for the RGB LED that indicates the RPM
 int flagPins[] = {3, 5, 6}; // Pins for the RGB LED that indicates the flag
 // Shift register pins for the 7-segment display
 int latchPin = 8;
@@ -36,7 +35,6 @@ int latchPin2 = 11;
 int clockPin2 = 10;
 int dataPin2 = 12;
 
-int ledRevsState = 0; // State of the LED that indicates the RPM
 unsigned long previousMillis = 0; // Will store the last time the LED was updated
 const long interval = 80; // Interval at which to blink the LED (milliseconds)
 
@@ -58,7 +56,6 @@ int buttonValOld = HIGH;
 LiquidCrystal_I2C lcd(0x27, 16, 2); // LCD display
 
 // Boxes LED
-// TODO - Make the boxes LED to serve as DRS indicator. Blink when available and turn on when activated
 int pinBoxes = 4;
 
 int i;
@@ -84,6 +81,11 @@ struct ParsedData {
   int WhiteFlag;
   int CheckeredFlag;
   int Flag; // 0: No flag, 1: Black, 2: Yellow, 3: Green, 4: Blue, 5: White, 6: Checkered
+  bool DRS_av;
+  bool DRS_act; // DRS available and active
+  int prev_lapTimeH;
+  int prev_lapTimeMin;
+  float prev_lapTimeSec;
 };
 
 // Numbers for the 7-segment display
@@ -179,45 +181,26 @@ void loop() {
        * REVS COLOR
        * **********/
 
-      //Blink the LED if the RPM is over the red line (98%)
-      if (parsedData.rpmPC > 98) {
-        // Blink the LED without delay
-        if (currentMillis - previousMillis >= interval) {
-          previousMillis = currentMillis;
-          if (ledRevsState == 0) {
-            // setLedsRevs(0);
-            setLedsRevsShifter(0);
-            ledRevsState = 1;
-          }
-          else {
-            // setLedsRevs(parsedData.rpmPC);
-            setLedsRevsShifter(parsedData.rpmPC);
-            ledRevsState = 0;
-          }
-        }
-      }
-      else{
-        // setLedsRevs(parsedData.rpmPC);
-        setLedsRevsShifter(parsedData.rpmPC);
-      }
+      // Call the refactored setLedsRevsShifter function
+      setLedsRevsShifter(parsedData.rpmPC, currentMillis);
 
       /************
        * PIT LIMITER
        * **********/
       // If the pit limiter is on, turn on the Boxes LED
-      if (parsedData.pitLimiter) {
-        digitalWrite(pinBoxes, HIGH);
-      }
-      else {
-        digitalWrite(pinBoxes, LOW);
-      }
+      setLedPitLimiter(parsedData.pitLimiter);
+
+      /************
+       * DRS
+       * **********/
+
       
       /************
        * FLAG COLOR
        * **********/
       colorFlag = flagColor(parsedData.Flag); // Get the color of the LED based on the flag
       // Set the color of the LED
-      setFlagColor(colorFlag);
+      setFlagColor(colorFlag, parsedData.Flag, currentMillis);
 
       /************
        * DISPLAY
@@ -228,6 +211,8 @@ void loop() {
       bufferIndex = 0; // Reset the buffer index
     }
   }
+
+  setLedsRevsShifter(parsedData.rpmPC, currentMillis);
 }
 
 
@@ -312,6 +297,8 @@ ParsedData parseData(char* data) {
   parsedData.WhiteFlag = atoi(strtok(NULL, ";"));
   parsedData.CheckeredFlag = atoi(strtok(NULL, ")"));  // Final flag before ')'
 
+  // TODO: Get DRS availability and activation status, and previous lap time
+
   // Determine the flag based on priority
   if (parsedData.BlackFlag == 1) {
     parsedData.Flag = 1;
@@ -334,108 +321,64 @@ ParsedData parseData(char* data) {
 
 
 
-int* revsColorRGB(float revsPC) {
-  // Return the color of the LED based on the RPM
-  static int color[3]; // RGB color
-  if (revsPC < 75) {
-    // LOW RPM - LED is OFF
-    color[0] = 0;
-    color[1] = 0;
-    color[2] = 0;
-  }
-  else if (revsPC < 85) {
-    // MEDIUM RPM - LED is GREEN
-    color[0] = 0;
-    color[1] = 255;
-    color[2] = 0;
-  }
-  else if (revsPC < 95) {
-    // HIGH RPM - LED is YELLOW
-    color[0] = 255;
-    color[1] = 80;
-    color[2] = 0;
-  }
-  /*
-  else if (revsPC < 95) {
-    // VERY HIGH RPM - LED is RED
-    color[0] = 255;
-    color[1] = 0;
-    color[2] = 0;
-  }
-  */
-  else {
-    // MAX RPM - LED is purple or blinking red
-    color[0] = 255;
-    color[1] = 0;
-    color[2] = 0;
-  }
+void setLedsRevsShifter(float revsPC, unsigned long currentMillis) {
+  static unsigned long previousMillis = 0; // Store the last time the LEDs were updated
+  static int ledRevsState = 0; // State of the LEDs
+  const long interval = 80; // Interval at which to blink the LEDs (milliseconds)
 
-  return color;
-
-}
-
-
-
-void setRevsColorRGB(int color[]) {
-  // Change the color of the LED that indicates the RPM
-  for (i = 0; i < 3; i++) {
-    analogWrite(revPins[i], color[i]);
-  }
-}
-
-
-
-void setLedsRevs(float revsPC) {
-  if (revsPC < 75) {
-    // LOW RPM - LED is OFF
-    digitalWrite(revPins[0], LOW);
-    digitalWrite(revPins[1], LOW);
-    digitalWrite(revPins[2], LOW);
-  }
-  else if (revsPC < 85) {
-    // MEDIUM RPM - LED is GREEN
-    digitalWrite(revPins[0], HIGH);
-    digitalWrite(revPins[1], LOW);
-    digitalWrite(revPins[2], LOW);
-  }
-  else if (revsPC < 95) {
-    // HIGH RPM - LED is YELLOW
-    digitalWrite(revPins[0], HIGH);
-    digitalWrite(revPins[1], HIGH);
-    digitalWrite(revPins[2], LOW);
-  }
-  else {
-    // VERY HIGH RPM - LED is RED
-    digitalWrite(revPins[0], HIGH);
-    digitalWrite(revPins[1], HIGH);
-    digitalWrite(revPins[2], HIGH);
-  }
-  
-
-}
-
-
-
-void setLedsRevsShifter(float revsPC) {
-  // Set the number of leds turned on based on the RPM. If rpm PC is <75, no leds are turned on. If rpm PC is >95, all leds are turned on.
-  // The leds are turned on in a sequence from left to right
+  // Determine the number of LEDs to turn on based on RPM percentage
   int numLedsOn = 0;
   if (revsPC < 75) {
     numLedsOn = 0;
-  }
-  else {
-    numLedsOn = map(revsPC, 75, 95, 1, 8);
+  } else {
+    numLedsOn = map(revsPC, 72, 95, 0, 8);
   }
 
+  // Handle blinking if RPM is over the red line (98%)
+  if (revsPC > 97) {
+    if (currentMillis - previousMillis >= interval) {
+      previousMillis = currentMillis;
+      ledRevsState = !ledRevsState; // Toggle the LED state
+    }
+  } else {
+    ledRevsState = 1; // Ensure LEDs are steady when not blinking
+  }
+
+  // Set the LEDs based on the current state
   byte leds = 0;
-  for (i = 0; i < numLedsOn; i++) {
-    bitSet(leds, i);
+  if (ledRevsState) {
+    for (int i = 0; i < numLedsOn; i++) {
+      bitSet(leds, i);
+    }
   }
 
 
   digitalWrite(latchPin2, LOW);
   shiftOut(dataPin2, clockPin2, MSBFIRST, leds);
   digitalWrite(latchPin2, HIGH);
+}
+
+
+void setLedDRS(bool DRS_av, bool DRS_act, unsigned long currentMillis) {
+  // Set the LED for the DRS
+  // If DRS is available, blink the LED
+  // If DRS is active, turn on the LED
+  if (DRS_av) {
+    if (DRS_act) {
+      digitalWrite(pinBoxes, HIGH); // Turn on the LED
+    } else {
+      // Blink the LED
+      static unsigned long previousMillis = 0;
+      const long interval = 500; // Blink interval in milliseconds
+
+      if (currentMillis - previousMillis >= interval) {
+        previousMillis = currentMillis;
+        digitalWrite(pinBoxes, !digitalRead(pinBoxes)); // Toggle the LED state
+      }
+    }
+  } else {
+    digitalWrite(pinBoxes, LOW); // Turn off the LED
+  }
 }
 
 
@@ -493,8 +436,27 @@ int* flagColor(int Flag) {
 
 
 
-void setFlagColor(int color[]) {
+void setFlagColor(int color[], int Flag, unsigned long currentMillis) {
   // Change the color of the LED that indicates the flag
+  if (Flag == 2) { // Yellow flag. Make the LED blink
+    static unsigned long previousMillis = 0; // Store the last time the LED was updated
+    const long interval = 500; // Interval at which to blink the LED (milliseconds)
+
+    if (currentMillis - previousMillis >= interval) {
+      previousMillis = currentMillis;
+      // Toggle the LED state for yellow color
+      if (color[0] == 0 && color[1] == 0 ) { //&& color[2] == 0 Is not necessary, but added for clarity
+        color[0] = 255; // Red component
+        color[1] = 80;  // Green component
+        color[2] = 0;   // Blue component
+      } else {
+        color[0] = 0;
+        color[1] = 0;
+        color[2] = 0;
+      }
+    }
+  }
+
   for (i = 0; i < 3; i++) {
     analogWrite(flagPins[i], color[i]);
   }
@@ -518,6 +480,16 @@ void setGear(int gear) {
   }
 }
 
+
+void setLedPitLimiter(bool pitLimiter) {
+  // Set the LED for the pit limiter
+  if (pitLimiter) {
+    digitalWrite(pinBoxes, HIGH);
+  }
+  else {
+    digitalWrite(pinBoxes, LOW);
+  }
+}
 
 
 void checkButtonMode() {
@@ -566,11 +538,37 @@ void changeDisplayMode() {
 
 
 
-void setDisplay(int mode, int lap, int totalLaps, float fuelLaps, int lapTimeH, int lapTimeMin, float lapTimeS, float deltaS, int pos, int opp) {
+void setDisplay(int mode, int lap, int totalLaps, float fuelLaps, int lapTimeH, int lapTimeMin, float lapTimeS, float deltaS, int pos, int opp, float prevLap_time) {
+  // TODO: Correct previous lap time format
+  static int prevLap = 1; // Previous lap to detect lap changes
+  static unsigned long lastLapDisplayTime = 0; // Time when the last lap time started displaying
+  static bool showingLastLapTime = false; // Flag to indicate if last lap time is being displayed
+
+  unsigned long currentMillis = millis();
+
+  // Check if the lap changed
+  if (lap != prevLap) {
+    prevLap = lap;
+    lastLapDisplayTime = currentMillis;
+    showingLastLapTime = true;
+  }
+
+  // Show the last lap time for 3 seconds if needed
+  if (showingLastLapTime && currentMillis - lastLapDisplayTime <= 3000) {
+    lcd.setCursor(0, 0);
+    lcd.print("Last Lap:");
+    lcd.setCursor(0, 1);
+    lcd.print(prevLap_time, 2); // Display the last lap time with 2 decimal places
+    lcd.print("              "); // Clear the rest of the line
+    return; // Exit the function to avoid overwriting the display
+  } else {
+    showingLastLapTime = false; // Stop showing the last lap time after 3 seconds
+  }
+
   if (mode == 0) {
     // Crono mode 1. Show lap time in the first line and lap and fuel in the second line
     lcd.setCursor(0, 0);
-    lcd.print(lapTimeMin+60*lapTimeH);
+    lcd.print(lapTimeMin + 60 * lapTimeH);
     lcd.print(":");
     if (lapTimeS < 10) {
       lcd.print("0");
