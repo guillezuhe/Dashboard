@@ -193,15 +193,10 @@ void loop() {
       setLedsRevsShifter(parsedData.rpmPC, currentMillis);
 
       /************
-       * PIT LIMITER
+       * PIT LIMITER AND DRS
        * **********/
       // If the pit limiter is on, turn on the Boxes LED
-      setLedPitLimiter(parsedData.pitLimiter);
-
-      /************
-       * DRS
-       * **********/
-      setLedDRS(parsedData.DRS_av, parsedData.DRS_act, currentMillis);
+      setLedPitLimiter(parsedData.pitLimiter, parsedData.DRS_av, parsedData.DRS_act, currentMillis);
       
       /************
        * FLAG COLOR
@@ -398,28 +393,6 @@ void setLedsRevsShifter(float revsPC, unsigned long currentMillis) {
 }
 
 
-void setLedDRS(bool DRS_av, bool DRS_act, unsigned long currentMillis) {
-  // Set the LED for the DRS
-  // If DRS is available, blink the LED
-  // If DRS is active, turn on the LED
-  if (DRS_av) {
-    if (DRS_act) {
-      digitalWrite(pinBoxes, HIGH); // Turn on the LED
-    } else {
-      // Blink the LED
-      static unsigned long previousMillis = 0;
-      const long interval = 80; // Blink interval in milliseconds
-
-      if (currentMillis - previousMillis >= interval) {
-        previousMillis = currentMillis;
-        digitalWrite(pinBoxes, !digitalRead(pinBoxes)); // Toggle the LED state
-      }
-    }
-  } else {
-    digitalWrite(pinBoxes, LOW); // Turn off the LED
-  }
-}
-
 
 
 int* flagColor(int Flag) {
@@ -520,12 +493,20 @@ void setGear(int gear) {
 }
 
 
-void setLedPitLimiter(bool pitLimiter) {
+void setLedPitLimiter(bool pitLimiter, bool DRS_av, bool DRS_act, unsigned long currentMillis) {
   // Set the LED for the pit limiter
-  if (pitLimiter) {
+  if (pitLimiter || (DRS_act)) {
     digitalWrite(pinBoxes, HIGH);
-  }
-  else {
+  } else if (DRS_av) {
+    // If DRS is available, blink the LED
+    static unsigned long previousMillis = 0;
+    const long interval = 80; // Blink interval in milliseconds
+
+    if (currentMillis - previousMillis >= interval) {
+      previousMillis = currentMillis;
+      digitalWrite(pinBoxes, !digitalRead(pinBoxes)); // Toggle the LED state
+    }
+  }  else {
     digitalWrite(pinBoxes, LOW);
   }
 }
