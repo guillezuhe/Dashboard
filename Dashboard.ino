@@ -71,9 +71,14 @@ struct ParsedData {
   int lapTimeH;
   int lapTimeMin;
   float lapTimeSec;
+  int prev_lapTimeH;
+  int prev_lapTimeMin;
+  float prev_lapTimeSec;
   float deltaSec;
   int pos;
   int opp;
+  bool DRS_av;
+  bool DRS_act;
   int BlackFlag;
   int YellowFlag;
   int GreenFlag;
@@ -81,11 +86,6 @@ struct ParsedData {
   int WhiteFlag;
   int CheckeredFlag;
   int Flag; // 0: No flag, 1: Black, 2: Yellow, 3: Green, 4: Blue, 5: White, 6: Checkered
-  bool DRS_av;
-  bool DRS_act; // DRS available and active
-  int prev_lapTimeH;
-  int prev_lapTimeMin;
-  float prev_lapTimeSec;
 };
 
 // Numbers for the 7-segment display
@@ -114,7 +114,7 @@ ParsedData parsedData;
 void setup() {
   Serial.begin(115200); // Initialize serial communication at 9600 baud rate
   for (i = 0; i < 3; i++) {
-    pinMode(revPins[i], OUTPUT);
+    //pinMode(revPins[i], OUTPUT);
     pinMode(flagPins[i], OUTPUT);
   }
 
@@ -123,10 +123,18 @@ void setup() {
   pinMode(clockPin, OUTPUT);
   pinMode(dataPin, OUTPUT);
 
+  digitalWrite(latchPin, LOW);
+  shiftOut(dataPin, clockPin, LSBFIRST, numbers[0]);
+  digitalWrite(latchPin, HIGH);
+
   // Initialize the rev leds shift register
   pinMode(latchPin2, OUTPUT);
   pinMode(clockPin2, OUTPUT);
   pinMode(dataPin2, OUTPUT);
+
+  digitalWrite(latchPin2, LOW);
+  shiftOut(dataPin2, clockPin2, LSBFIRST,0b00000000);
+  digitalWrite(latchPin2, HIGH);
 
   // Initialize the button
   pinMode(buttonPin, INPUT_PULLUP);
@@ -193,7 +201,7 @@ void loop() {
       /************
        * DRS
        * **********/
-
+      setLedDRS(parsedData.DRS_av, parsedData.DRS_act, currentMillis);
       
       /************
        * FLAG COLOR
@@ -206,13 +214,14 @@ void loop() {
        * DISPLAY
        * **********/
       checkButtonMode();
-      setDisplay(displayMode, parsedData.lap, parsedData.totalLaps, parsedData.fuelLaps, parsedData.lapTimeH, parsedData.lapTimeMin, parsedData.lapTimeSec, parsedData.deltaSec, parsedData.pos, parsedData.opp);
+      setDisplay(displayMode, parsedData.lap, parsedData.totalLaps, parsedData.fuelLaps, parsedData.lapTimeH, 
+                 parsedData.lapTimeMin, parsedData.lapTimeSec, parsedData.deltaSec, parsedData.pos, parsedData.opp, 
+                 parsedData.prev_lapTimeH, parsedData.prev_lapTimeMin, parsedData.prev_lapTimeSec);
     
       bufferIndex = 0; // Reset the buffer index
     }
   }
 
-  setLedsRevsShifter(parsedData.rpmPC, currentMillis);
 }
 
 
@@ -224,7 +233,14 @@ void loop() {
 FUNCTIONS
 
 *************/
-
+/*
+DATA FORMAT
+'('+[SpeedKmh]+';'+[Gear]+';'+[CarSettings_CurrentDisplayedRPMPercent]+';'+[PitLimiterOn]+';'+
+[CurrentLap]+';'+[TotalLaps]+';'+[DataCorePlugin.Computed.Fuel_RemainingLaps]+';'+[CurrentLapTime]+';'+
+[LastLapTime]+';'+[PersistantTrackerPlugin.SessionBestLiveDeltaSeconds]+';'+[Position]+';'+
+[OpponentsCount]+';'+[DRSAvailable]+';'+[DRSEnabled]+';'+[Flag_Black]+';'+[Flag_Yellow]+';'+
+[Flag_Green]+';'+[Flag_Blue]+';'+[Flag_White]+';'+[Flag_Checkered]+')\n'
+*/
 ParsedData parseData(char* data) {
   ParsedData parsedData;
 
@@ -277,6 +293,16 @@ ParsedData parseData(char* data) {
   token = strtok(NULL, ";");
   parsedData.lapTimeSec = atof(token);  // Seconds
 
+  // Previous Lap Time (Hours, Minutes, Seconds)
+  token = strtok(NULL, ":");
+  parsedData.prev_lapTimeH = atoi(token);  // Hours
+
+  token = strtok(NULL, ":");
+  parsedData.prev_lapTimeMin = atoi(token);  // Minutes
+
+  token = strtok(NULL, ";");
+  parsedData.prev_lapTimeSec = atof(token);  // Seconds
+
   // Delta Seconds
   token = strtok(NULL, ";");
   parsedData.deltaSec = atof(token);
@@ -288,6 +314,14 @@ ParsedData parseData(char* data) {
   // Opponents Count
   token = strtok(NULL, ";");
   parsedData.opp = atoi(token);
+
+  // DRS available
+  token = strtok(NULL, ";");
+  parsedData.DRS_av = atoi(token);
+
+  // DRS active
+  token = strtok(NULL, ";");
+  parsedData.DRS_act = atoi(token);
 
   // Flags
   parsedData.BlackFlag = atoi(strtok(NULL, ";"));
@@ -352,6 +386,11 @@ void setLedsRevsShifter(float revsPC, unsigned long currentMillis) {
     }
   }
 
+  // Print the current state of the LEDs to the Serial port
+  /*
+  Serial.print("LEDs state: ");
+  Serial.println(leds, BIN);
+  */
 
   digitalWrite(latchPin2, LOW);
   shiftOut(dataPin2, clockPin2, MSBFIRST, leds);
@@ -369,7 +408,7 @@ void setLedDRS(bool DRS_av, bool DRS_act, unsigned long currentMillis) {
     } else {
       // Blink the LED
       static unsigned long previousMillis = 0;
-      const long interval = 500; // Blink interval in milliseconds
+      const long interval = 80; // Blink interval in milliseconds
 
       if (currentMillis - previousMillis >= interval) {
         previousMillis = currentMillis;
@@ -440,7 +479,7 @@ void setFlagColor(int color[], int Flag, unsigned long currentMillis) {
   // Change the color of the LED that indicates the flag
   if (Flag == 2) { // Yellow flag. Make the LED blink
     static unsigned long previousMillis = 0; // Store the last time the LED was updated
-    const long interval = 500; // Interval at which to blink the LED (milliseconds)
+    const long interval = 1000; // Interval at which to blink the LED (milliseconds)
 
     if (currentMillis - previousMillis >= interval) {
       previousMillis = currentMillis;
@@ -538,8 +577,9 @@ void changeDisplayMode() {
 
 
 
-void setDisplay(int mode, int lap, int totalLaps, float fuelLaps, int lapTimeH, int lapTimeMin, float lapTimeS, float deltaS, int pos, int opp, float prevLap_time) {
-  // TODO: Correct previous lap time format
+void setDisplay(int mode, int lap, int totalLaps, float fuelLaps, int lapTimeH, int lapTimeMin, 
+                float lapTimeS, float deltaS, int pos, int opp, int prev_lapTimeH, int prev_lapTimeMin, 
+                float prev_lapTimeS) {
   static int prevLap = 1; // Previous lap to detect lap changes
   static unsigned long lastLapDisplayTime = 0; // Time when the last lap time started displaying
   static bool showingLastLapTime = false; // Flag to indicate if last lap time is being displayed
@@ -556,10 +596,18 @@ void setDisplay(int mode, int lap, int totalLaps, float fuelLaps, int lapTimeH, 
   // Show the last lap time for 3 seconds if needed
   if (showingLastLapTime && currentMillis - lastLapDisplayTime <= 3000) {
     lcd.setCursor(0, 0);
-    lcd.print("Last Lap:");
+    lcd.print(prev_lapTimeMin + 60 * prev_lapTimeH);
+    lcd.print(":");
+    if (prev_lapTimeS < 10) {
+      lcd.print("0");
+    }
+    lcd.print(prev_lapTimeS);
+    // Complete the line with spaces
+    lcd.print("              ");    
     lcd.setCursor(0, 1);
-    lcd.print(prevLap_time, 2); // Display the last lap time with 2 decimal places
-    lcd.print("              "); // Clear the rest of the line
+    
+    lcd.print("Last Lap");
+
     return; // Exit the function to avoid overwriting the display
   } else {
     showingLastLapTime = false; // Stop showing the last lap time after 3 seconds
